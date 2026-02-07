@@ -1,0 +1,16 @@
+.env
+*.db
+*.db-journal
+*.xlsx
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+env/
+ENV/
+.venv
+service_account.json
+*.log
+
