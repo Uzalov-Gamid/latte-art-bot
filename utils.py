@@ -7,6 +7,7 @@
 """
 
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
@@ -152,6 +153,15 @@ def apply_submission_result(submission, scores, accepted=True):
     was_evaluated = submission.status == SubmissionStatus.EVALUATED
     previous_points = int(submission.total_score or 0) if was_evaluated else 0
     if accepted:
+        limits = {"visual_quality": 10, "creativity": 10, "technical_skills": 10,
+                  "overall_harmony": 10, "total_score": 40}
+        try:
+            valid = all(math.isfinite(scores[field]) and 0 <= scores[field] <= maximum
+                        for field, maximum in limits.items())
+        except (KeyError, TypeError):
+            valid = False
+        if not valid:
+            raise ValueError("Judging scores must be finite and within their limits")
         for field in ("visual_quality", "creativity", "technical_skills", "overall_harmony", "total_score"):
             setattr(submission, field, scores[field])
         submission.level_achieved = calculate_level_from_score(scores["total_score"])

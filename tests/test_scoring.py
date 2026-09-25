@@ -121,3 +121,13 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.user.points, 24)
         self.assertEqual(self.user.evaluated_submissions_count, 1)
         self.assertEqual(self.submission.total_score, 24)
+
+    async def test_invalid_criteria_do_not_mutate_submission_or_points(self):
+        from utils import apply_submission_result
+        scores = dict(visual_quality=5, creativity=5, technical_skills=5, overall_harmony=5, total_score=20)
+        for invalid in (-1, 11, float("nan"), float("inf"), None):
+            with self.subTest(value=invalid):
+                with self.assertRaises(ValueError):
+                    apply_submission_result(self.submission, dict(scores, visual_quality=invalid))
+                self.assertEqual(self.user.points, 0)
+                self.assertEqual(self.submission.status, SubmissionStatus.PENDING)
