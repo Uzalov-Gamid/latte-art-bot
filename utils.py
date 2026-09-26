@@ -89,6 +89,8 @@ async def check_submission_limit(session: AsyncSession, user_id: int, weeks: int
     Check if user has exceeded submission limit (default: 3 per week).
     Returns (can_submit, count_this_week).
     """
+    if isinstance(weeks, bool) or not isinstance(weeks, int) or weeks < 1:
+        raise ValueError("weeks must be a positive integer")
     limit = 3
     week_ago = datetime.utcnow() - timedelta(weeks=weeks)
 

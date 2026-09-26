@@ -131,3 +131,10 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
                     apply_submission_result(self.submission, dict(scores, visual_quality=invalid))
                 self.assertEqual(self.user.points, 0)
                 self.assertEqual(self.submission.status, SubmissionStatus.PENDING)
+
+    async def test_submission_window_rejects_nonpositive_and_fractional_weeks(self):
+        from utils import check_submission_limit
+        for weeks in (0, -1, 1.5, True):
+            with self.subTest(weeks=weeks), self.assertRaises(ValueError):
+                await check_submission_limit(self.session, self.user.id, weeks)
+        self.assertEqual(await check_submission_limit(self.session, self.user.id), (True, 1))
