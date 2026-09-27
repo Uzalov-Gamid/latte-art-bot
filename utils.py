@@ -13,7 +13,7 @@ from typing import Dict, Optional
 
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, or_, and_
 from sqlalchemy.orm import selectinload
 from models import User, Submission, Evaluation, UserLevel, SubmissionStatus
 
@@ -110,7 +110,10 @@ async def get_user_ranking(session: AsyncSession, user_id: int) -> int:
         return 0
 
     result = await session.execute(
-        select(func.count(User.id)).where(User.points > user.points)
+        select(func.count(User.id)).where(or_(
+            User.points > user.points,
+            and_(User.points == user.points, User.id < user.id),
+        ))
     )
     rank = (result.scalar() or 0) + 1
     return rank
@@ -206,7 +209,7 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
         if filename is None:
             filename = f"latte_art_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
         # Лист 1: Участники
-        users_result = await session.execute(select(User).order_by(desc(User.points)))
+        users_result = await session.execute(select(User).order_by(desc(User.points), User.id))
         users = users_result.scalars().all()
 
         users_data = []
@@ -262,7 +265,7 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
 
         # Лист 3: Рейтинг (топ-100)
         leaderboard_result = await session.execute(
-            select(User).order_by(desc(User.points))
+            select(User).order_by(desc(User.points), User.id)
             .limit(100)
         )
         leaderboard = leaderboard_result.scalars().all()

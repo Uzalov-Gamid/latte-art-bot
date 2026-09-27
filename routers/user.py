@@ -347,7 +347,7 @@ async def submit_confirm(cb: CallbackQuery, session: AsyncSession, state: FSMCon
 @router.message(Command("leaderboard"))
 async def leaderboard_cmd(message: Message, session: AsyncSession) -> None:
     res = await session.execute(
-        select(User).order_by(desc(User.points))
+        select(User).order_by(desc(User.points), User.id)
         .limit(50)
     )
     users = res.scalars().all()

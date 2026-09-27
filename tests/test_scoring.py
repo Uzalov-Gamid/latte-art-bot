@@ -138,3 +138,8 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(weeks=weeks), self.assertRaises(ValueError):
                 await check_submission_limit(self.session, self.user.id, weeks)
         self.assertEqual(await check_submission_limit(self.session, self.user.id), (True, 1))
+
+    async def test_equal_points_have_stable_ordinal_ranks(self):
+        from utils import get_user_ranking
+        self.assertEqual(await get_user_ranking(self.session, self.user.id), 1)
+        self.assertEqual(await get_user_ranking(self.session, self.admin.id), 2)
