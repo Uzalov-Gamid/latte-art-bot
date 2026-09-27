@@ -43,8 +43,11 @@ SCORE_TO_LEVEL = {
 
 def calculate_level_from_score(score: float) -> UserLevel:
     """Calculate LAGS level from a submission score (0-40)."""
-    for (min_score, max_score), level in SCORE_TO_LEVEL.items():
-        if min_score <= score <= max_score:
+    if not 0 <= score <= 40:
+        raise ValueError("Score must be between 0 and 40")
+    # Lower bounds are inclusive; fractional scores stay below the next level.
+    for (min_score, _), level in reversed(tuple(SCORE_TO_LEVEL.items())):
+        if score >= min_score:
             return level
     return UserLevel.WHITE
 
