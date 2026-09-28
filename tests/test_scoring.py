@@ -143,3 +143,16 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
         from utils import get_user_ranking
         self.assertEqual(await get_user_ranking(self.session, self.user.id), 1)
         self.assertEqual(await get_user_ranking(self.session, self.admin.id), 2)
+
+    async def test_banned_users_do_not_occupy_leaderboard_places(self):
+        from utils import get_user_ranking
+        from routers.user import leaderboard_cmd
+        from unittest.mock import AsyncMock
+        self.admin.is_banned = True
+        self.admin.points = 999
+        await self.session.flush()
+        self.assertEqual(await get_user_ranking(self.session, self.user.id), 1)
+        self.assertEqual(await get_user_ranking(self.session, self.admin.id), 0)
+        message = AsyncMock()
+        await leaderboard_cmd(message, self.session)
+        self.assertNotIn("judge", message.answer.call_args.args[0])

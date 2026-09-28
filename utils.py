@@ -106,11 +106,11 @@ async def check_submission_limit(session: AsyncSession, user_id: int, weeks: int
 async def get_user_ranking(session: AsyncSession, user_id: int) -> int:
     """Get user's ranking position based on points."""
     user = await session.get(User, user_id)
-    if not user:
+    if not user or user.is_banned:
         return 0
 
     result = await session.execute(
-        select(func.count(User.id)).where(or_(
+        select(func.count(User.id)).where(User.is_banned.is_(False)).where(or_(
             User.points > user.points,
             and_(User.points == user.points, User.id < user.id),
         ))
@@ -265,7 +265,7 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
 
         # Лист 3: Рейтинг (топ-100)
         leaderboard_result = await session.execute(
-            select(User).order_by(desc(User.points), User.id)
+            select(User).where(User.is_banned.is_(False)).order_by(desc(User.points), User.id)
             .limit(100)
         )
         leaderboard = leaderboard_result.scalars().all()
