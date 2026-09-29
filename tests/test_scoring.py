@@ -156,3 +156,17 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
         message = AsyncMock()
         await leaderboard_cmd(message, self.session)
         self.assertNotIn("judge", message.answer.call_args.args[0])
+
+    async def test_default_export_names_are_unique_for_simultaneous_requests(self):
+        from unittest.mock import patch
+        from datetime import datetime
+        paths = []
+        try:
+            with patch("utils.datetime") as clock:
+                clock.utcnow.return_value = datetime(2026, 10, 17, 12)
+                paths.append(await export_to_excel(self.session))
+                paths.append(await export_to_excel(self.session))
+            self.assertNotEqual(paths[0], paths[1])
+        finally:
+            for path in paths:
+                Path(path).unlink(missing_ok=True)

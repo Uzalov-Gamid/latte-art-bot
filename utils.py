@@ -8,6 +8,7 @@
 
 import logging
 import math
+import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
@@ -207,7 +208,7 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
     """
     try:
         if filename is None:
-            filename = f"latte_art_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            filename = f"latte_art_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}.xlsx"
         # Лист 1: Участники
         users_result = await session.execute(select(User).order_by(desc(User.points), User.id))
         users = users_result.scalars().all()
