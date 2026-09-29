@@ -130,7 +130,7 @@ async def calculate_average_scores(session: AsyncSession, submission_id: int) ->
     )
     row = result.first()
 
-    if row and row.visual:
+    if row and row.visual is not None:
         return {
             'visual_quality': round(row.visual, 2),
             'creativity': round(row.creativity, 2),
