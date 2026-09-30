@@ -9,6 +9,9 @@
 import logging
 import math
 import uuid
+import os
+import tempfile
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
@@ -206,6 +209,7 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
     Export all data to Excel file with multiple sheets.
     Returns path to created file.
     """
+    temporary_path = None
     try:
         if filename is None:
             filename = f"latte_art_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}.xlsx"
@@ -317,8 +321,11 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
 
         df_evaluations = pd.DataFrame(evaluations_data)
 
-        # Write to Excel
-        with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+        # Write beside the destination, then atomically replace the completed file.
+        fd, temporary_path = tempfile.mkstemp(prefix=".latte-export-", suffix=".xlsx",
+                                               dir=Path(filename).resolve().parent)
+        with os.fdopen(fd, "wb") as export_stream:
+            writer = pd.ExcelWriter(export_stream, engine="openpyxl")
             df_users.to_excel(writer, sheet_name="Участники", index=False)
             df_submissions.to_excel(writer, sheet_name="Работы", index=False)
             df_leaderboard.to_excel(writer, sheet_name="Рейтинг", index=False)
@@ -329,14 +336,18 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
                     for cell in row:
                         if cell.data_type == "f":
                             cell.data_type = "s"
-
-
+            writer.close()
+        os.replace(temporary_path, filename)
+        temporary_path = None
         logger.info(f"Excel export created: {filename}")
         return filename
 
     except Exception as e:
         logger.error(f"Error exporting to Excel: {e}")
         raise
+    finally:
+        if temporary_path is not None:
+            Path(temporary_path).unlink(missing_ok=True)
 
 
 def get_localized_text(key: str, language: str = "ru") -> str:

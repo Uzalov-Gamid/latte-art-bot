@@ -170,3 +170,14 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
         finally:
             for path in paths:
                 Path(path).unlink(missing_ok=True)
+
+    async def test_failed_export_preserves_previous_file_and_removes_temporary_output(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "existing.xlsx"
+            target.write_bytes(b"previous export")
+            with patch("utils.pd.DataFrame.to_excel", side_effect=RuntimeError("write failed")):
+                with self.assertRaisesRegex(RuntimeError, "write failed"):
+                    await export_to_excel(self.session, str(target))
+            self.assertEqual(target.read_bytes(), b"previous export")
+            self.assertEqual(list(Path(temp).iterdir()), [target])
