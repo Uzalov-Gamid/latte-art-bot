@@ -147,6 +147,24 @@ async def calculate_average_scores(session: AsyncSession, submission_id: int) ->
     }
 
 
+def apply_submission_result(submission, scores, accepted=True):
+    """Replace a result and credit only its change to the participant."""
+    was_evaluated = submission.status == SubmissionStatus.EVALUATED
+    previous_points = int(submission.total_score or 0) if was_evaluated else 0
+    if accepted:
+        for field in ("visual_quality", "creativity", "technical_skills", "overall_harmony", "total_score"):
+            setattr(submission, field, scores[field])
+        submission.level_achieved = calculate_level_from_score(scores["total_score"])
+        submission.status = SubmissionStatus.EVALUATED
+    else:
+        submission.status = SubmissionStatus.REJECTED
+    new_points = int(submission.total_score or 0) if accepted else 0
+    user = submission.user
+    user.points = (user.points or 0) + new_points - previous_points
+    user.evaluated_submissions_count = max(0, (user.evaluated_submissions_count or 0) + int(accepted) - int(was_evaluated))
+    user.level = recalc_user_level_by_points(user.points)
+
+
 async def update_submission_scores(session: AsyncSession, submission_id: int):
     """Update submission with averaged scores from all evaluations."""
     scores = await calculate_average_scores(session, submission_id)
@@ -159,20 +177,7 @@ async def update_submission_scores(session: AsyncSession, submission_id: int):
     submission = result.scalar_one_or_none()
 
     if submission and scores['total_score'] > 0:
-        submission.visual_quality = scores['visual_quality']
-        submission.creativity = scores['creativity']
-        submission.technical_skills = scores['technical_skills']
-        submission.overall_harmony = scores['overall_harmony']
-        submission.total_score = scores['total_score']
-        submission.level_achieved = calculate_level_from_score(
-            scores['total_score'])
-        submission.status = SubmissionStatus.EVALUATED
-
-        # Update user points and level
-        user = submission.user
-        user.points += int(scores['total_score'])
-        user.evaluated_submissions_count += 1
-        user.level = recalc_user_level_by_points(user.points)
+        apply_submission_result(submission, scores)
 
         await session.commit()
 

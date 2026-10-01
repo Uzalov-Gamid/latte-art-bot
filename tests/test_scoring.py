@@ -37,3 +37,25 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
         result = await calculate_average_scores(self.session, self.submission.id)
         self.assertEqual(result["visual_quality"], 0)
         self.assertEqual(result["total_score"], 15)
+
+    async def test_recalculation_does_not_double_credit_points(self):
+        evaluation = await self.evaluation(visual=5)
+        await update_submission_scores(self.session, self.submission.id)
+        await update_submission_scores(self.session, self.submission.id)
+        self.assertEqual(self.user.points, 20)
+        self.assertEqual(self.user.evaluated_submissions_count, 1)
+        evaluation.total_score = 24
+        await self.session.flush()
+        await update_submission_scores(self.session, self.submission.id)
+        self.assertEqual(self.user.points, 24)
+        self.assertEqual(self.user.evaluated_submissions_count, 1)
+
+    async def test_rejecting_accepted_result_reverses_credit_once(self):
+        from utils import apply_submission_result
+        await self.evaluation(visual=5)
+        await update_submission_scores(self.session, self.submission.id)
+        apply_submission_result(self.submission, {}, accepted=False)
+        apply_submission_result(self.submission, {}, accepted=False)
+        self.assertEqual(self.user.points, 0)
+        self.assertEqual(self.user.evaluated_submissions_count, 0)
+        self.assertEqual(self.submission.status, SubmissionStatus.REJECTED)
