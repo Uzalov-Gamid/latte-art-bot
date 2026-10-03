@@ -59,3 +59,15 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.user.points, 0)
         self.assertEqual(self.user.evaluated_submissions_count, 0)
         self.assertEqual(self.submission.status, SubmissionStatus.REJECTED)
+
+    async def test_zero_score_is_a_valid_evaluated_result(self):
+        await self.evaluation(0, 0, 0, 0)
+        await update_submission_scores(self.session, self.submission.id)
+        self.assertEqual(self.submission.status, SubmissionStatus.EVALUATED)
+        self.assertEqual(self.user.points, 0)
+        self.assertEqual(self.user.evaluated_submissions_count, 1)
+
+    async def test_missing_evaluations_leave_submission_pending(self):
+        await update_submission_scores(self.session, self.submission.id)
+        self.assertEqual(self.submission.status, SubmissionStatus.PENDING)
+        self.assertEqual(self.user.evaluated_submissions_count, 0)

@@ -176,7 +176,10 @@ async def update_submission_scores(session: AsyncSession, submission_id: int):
     )
     submission = result.scalar_one_or_none()
 
-    if submission and scores['total_score'] > 0:
+    count = await session.scalar(
+        select(func.count(Evaluation.id)).where(Evaluation.submission_id == submission_id)
+    )
+    if submission and count:
         apply_submission_result(submission, scores)
 
         await session.commit()
