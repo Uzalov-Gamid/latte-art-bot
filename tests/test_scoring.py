@@ -71,3 +71,18 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
         await update_submission_scores(self.session, self.submission.id)
         self.assertEqual(self.submission.status, SubmissionStatus.PENDING)
         self.assertEqual(self.user.evaluated_submissions_count, 0)
+
+    async def test_export_preserves_fractional_scores(self):
+        from openpyxl import load_workbook
+        await self.evaluation(visual=5.5)
+        await update_submission_scores(self.session, self.submission.id)
+        with tempfile.TemporaryDirectory() as temp:
+            filename = str(Path(temp) / "results.xlsx")
+            await export_to_excel(self.session, filename)
+            book = load_workbook(filename)
+            try:
+                for sheet, column in [("Работы", "Визуал"), ("Оценки", "Visual")]:
+                    rows = list(book[sheet].values)
+                    self.assertEqual(rows[1][rows[0].index(column)], 5.5)
+            finally:
+                book.close()
