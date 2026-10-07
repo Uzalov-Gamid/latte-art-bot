@@ -86,3 +86,20 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(rows[1][rows[0].index(column)], 5.5)
             finally:
                 book.close()
+
+    async def test_export_keeps_formula_like_nicknames_as_text(self):
+        from openpyxl import load_workbook
+        self.user.nickname = "=1+1"
+        await self.session.flush()
+        with tempfile.TemporaryDirectory() as temp:
+            filename = str(Path(temp) / "results.xlsx")
+            await export_to_excel(self.session, filename)
+            book = load_workbook(filename)
+            try:
+                sheet = book["Участники"]
+                headers = [cell.value for cell in sheet[1]]
+                cell = sheet.cell(2, headers.index("Ник") + 1)
+                self.assertEqual(cell.value, "=1+1")
+                self.assertEqual(cell.data_type, "s")
+            finally:
+                book.close()

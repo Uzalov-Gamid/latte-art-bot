@@ -307,6 +307,13 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
             df_submissions.to_excel(writer, sheet_name="Работы", index=False)
             df_leaderboard.to_excel(writer, sheet_name="Рейтинг", index=False)
             df_evaluations.to_excel(writer, sheet_name="Оценки", index=False)
+            # User-controlled strings must remain text, never spreadsheet formulas.
+            for sheet in writer.book.worksheets:
+                for row in sheet:
+                    for cell in row:
+                        if cell.data_type == "f":
+                            cell.data_type = "s"
+
 
         logger.info(f"Excel export created: {filename}")
         return filename
