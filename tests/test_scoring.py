@@ -103,3 +103,21 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(cell.data_type, "s")
             finally:
                 book.close()
+
+    async def test_admin_handler_rejudges_without_double_credit(self):
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock, patch
+        from routers.admin import judge_decide
+        cb = SimpleNamespace(data="a:decide:accept", from_user=SimpleNamespace(id=2),
+                             message=AsyncMock(), answer=AsyncMock())
+        state = AsyncMock()
+        data = {"submission_id": self.submission.id, "visual": 5, "creativity": 5,
+                "technique": 5, "harmony": 5, "total": 20}
+        state.get_data.return_value = data
+        with patch("routers.admin.require_admin", new=AsyncMock(return_value=True)):
+            await judge_decide(cb, self.session, state)
+            data.update(visual=9, total=24)
+            await judge_decide(cb, self.session, state)
+        self.assertEqual(self.user.points, 24)
+        self.assertEqual(self.user.evaluated_submissions_count, 1)
+        self.assertEqual(self.submission.total_score, 24)
