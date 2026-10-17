@@ -40,6 +40,17 @@ class TestLevels(unittest.TestCase):
         for s in (39, 40):
             self.assertEqual(calculate_level_from_score(float(s)).value, "Gold")
 
+    def test_fractional_scores_between_levels(self):
+        for score, level in ((10.5, "White"), (18.5, "Orange"),
+                             (25.5, "Green"), (32.5, "Red"), (38.5, "Black")):
+            with self.subTest(score=score):
+                self.assertEqual(calculate_level_from_score(score).value, level)
+
+    def test_invalid_scores_are_rejected(self):
+        for score in (-1, 40.1, float("nan"), float("inf")):
+            with self.subTest(score=score), self.assertRaises(ValueError):
+                calculate_level_from_score(score)
+
     def test_user_level_by_points(self):
         self.assertEqual(recalc_user_level_by_points(0).value, "White")
         self.assertEqual(recalc_user_level_by_points(10).value, "White")

@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from models import AdminSession, Evaluation, Submission, SubmissionStatus, User
-from utils import calculate_level_from_score, export_to_excel, recalc_user_level_by_points
+from utils import apply_submission_result, export_to_excel
 
 logger = logging.getLogger(__name__)
 
@@ -515,22 +515,15 @@ async def judge_decide(cb: CallbackQuery, session: AsyncSession, state: FSMConte
     )
     session.add(evaluation)
 
-    # Обновляем submission (упрощённо: последняя оценка = итог)
-    if decision == "accept":
-        sub.visual_quality = float(data["visual"])
-        sub.creativity = float(data["creativity"])
-        sub.technical_skills = float(data["technique"])
-        sub.overall_harmony = float(data["harmony"])
-        sub.total_score = float(total)
-        sub.level_achieved = calculate_level_from_score(float(total))
-        sub.admin_comment = data.get("comment")
-        sub.status = SubmissionStatus.EVALUATED
-
-        sub.user.points += int(total)
-        sub.user.level = recalc_user_level_by_points(sub.user.points)
-    else:
-        sub.admin_comment = data.get("comment")
-        sub.status = SubmissionStatus.REJECTED
+    scores = {
+        "visual_quality": float(data["visual"]),
+        "creativity": float(data["creativity"]),
+        "technical_skills": float(data["technique"]),
+        "overall_harmony": float(data["harmony"]),
+        "total_score": float(total),
+    }
+    apply_submission_result(sub, scores, accepted=decision == "accept")
+    sub.admin_comment = data.get("comment")
 
     await session.commit()
 

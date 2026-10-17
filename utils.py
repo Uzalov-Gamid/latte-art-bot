@@ -43,8 +43,11 @@ SCORE_TO_LEVEL = {
 
 def calculate_level_from_score(score: float) -> UserLevel:
     """Calculate LAGS level from a submission score (0-40)."""
-    for (min_score, max_score), level in SCORE_TO_LEVEL.items():
-        if min_score <= score <= max_score:
+    if not 0 <= score <= 40:
+        raise ValueError("Score must be between 0 and 40")
+    # Lower bounds are inclusive; fractional scores stay below the next level.
+    for (min_score, _), level in reversed(tuple(SCORE_TO_LEVEL.items())):
+        if score >= min_score:
             return level
     return UserLevel.WHITE
 
@@ -127,7 +130,7 @@ async def calculate_average_scores(session: AsyncSession, submission_id: int) ->
     )
     row = result.first()
 
-    if row and row.visual:
+    if row and row.visual is not None:
         return {
             'visual_quality': round(row.visual, 2),
             'creativity': round(row.creativity, 2),
@@ -144,6 +147,24 @@ async def calculate_average_scores(session: AsyncSession, submission_id: int) ->
     }
 
 
+def apply_submission_result(submission, scores, accepted=True):
+    """Replace a result and credit only its change to the participant."""
+    was_evaluated = submission.status == SubmissionStatus.EVALUATED
+    previous_points = int(submission.total_score or 0) if was_evaluated else 0
+    if accepted:
+        for field in ("visual_quality", "creativity", "technical_skills", "overall_harmony", "total_score"):
+            setattr(submission, field, scores[field])
+        submission.level_achieved = calculate_level_from_score(scores["total_score"])
+        submission.status = SubmissionStatus.EVALUATED
+    else:
+        submission.status = SubmissionStatus.REJECTED
+    new_points = int(submission.total_score or 0) if accepted else 0
+    user = submission.user
+    user.points = (user.points or 0) + new_points - previous_points
+    user.evaluated_submissions_count = max(0, (user.evaluated_submissions_count or 0) + int(accepted) - int(was_evaluated))
+    user.level = recalc_user_level_by_points(user.points)
+
+
 async def update_submission_scores(session: AsyncSession, submission_id: int):
     """Update submission with averaged scores from all evaluations."""
     scores = await calculate_average_scores(session, submission_id)
@@ -155,21 +176,11 @@ async def update_submission_scores(session: AsyncSession, submission_id: int):
     )
     submission = result.scalar_one_or_none()
 
-    if submission and scores['total_score'] > 0:
-        submission.visual_quality = scores['visual_quality']
-        submission.creativity = scores['creativity']
-        submission.technical_skills = scores['technical_skills']
-        submission.overall_harmony = scores['overall_harmony']
-        submission.total_score = scores['total_score']
-        submission.level_achieved = calculate_level_from_score(
-            scores['total_score'])
-        submission.status = SubmissionStatus.EVALUATED
-
-        # Update user points and level
-        user = submission.user
-        user.points += int(scores['total_score'])
-        user.evaluated_submissions_count += 1
-        user.level = recalc_user_level_by_points(user.points)
+    count = await session.scalar(
+        select(func.count(Evaluation.id)).where(Evaluation.submission_id == submission_id)
+    )
+    if submission and count:
+        apply_submission_result(submission, scores)
 
         await session.commit()
 
@@ -224,11 +235,11 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
                 "Автор Ник": (sub.user.nickname or "") if sub.user else "",
                 "Дата": sub.submission_date.strftime("%Y-%m-%d %H:%M") if sub.submission_date else "",
                 "Описание": sub.description or "",
-                "Визуал": int(sub.visual_quality or 0),
-                "Креатив": int(sub.creativity or 0),
-                "Техника": int(sub.technical_skills or 0),
-                "Гармония": int(sub.overall_harmony or 0),
-                "Итог": int(sub.total_score or 0),
+                "Визуал": float(sub.visual_quality or 0),
+                "Креатив": float(sub.creativity or 0),
+                "Техника": float(sub.technical_skills or 0),
+                "Гармония": float(sub.overall_harmony or 0),
+                "Итог": float(sub.total_score or 0),
                 "Уровень": level_val,
                 "Статус": sub.status.value if hasattr(sub.status, "value") else str(sub.status),
                 "Комментарий": sub.admin_comment or "",
@@ -278,11 +289,11 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
                 "ID": ev.id,
                 "Submission ID": ev.submission_id,
                 "Автор": ev.submission.user.nickname if ev.submission and ev.submission.user else "",
-                "Visual": int(ev.visual_quality),
-                "Creativity": int(ev.creativity),
-                "Technique": int(ev.technical_skills),
-                "Harmony": int(ev.overall_harmony),
-                "Total": int(ev.total_score),
+                "Visual": float(ev.visual_quality),
+                "Creativity": float(ev.creativity),
+                "Technique": float(ev.technical_skills),
+                "Harmony": float(ev.overall_harmony),
+                "Total": float(ev.total_score),
                 "Комментарий": ev.comment or "",
                 "Дата оценки": ev.evaluation_date.strftime("%Y-%m-%d %H:%M:%S") if ev.evaluation_date else "",
                 "Админ": admin.nickname if admin else "",
@@ -296,6 +307,13 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
             df_submissions.to_excel(writer, sheet_name="Работы", index=False)
             df_leaderboard.to_excel(writer, sheet_name="Рейтинг", index=False)
             df_evaluations.to_excel(writer, sheet_name="Оценки", index=False)
+            # User-controlled strings must remain text, never spreadsheet formulas.
+            for sheet in writer.book.worksheets:
+                for row in sheet:
+                    for cell in row:
+                        if cell.data_type == "f":
+                            cell.data_type = "s"
+
 
         logger.info(f"Excel export created: {filename}")
         return filename
