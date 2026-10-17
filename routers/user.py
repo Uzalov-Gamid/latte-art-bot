@@ -182,6 +182,7 @@ async def _send_profile(message: Message, session: AsyncSession, telegram_id: in
         return
 
     rank = await get_user_ranking(session, user.id)
+    rank_label = f"#{rank}" if rank else "\u2014"
 
     res = await session.execute(
         select(Submission)
@@ -197,7 +198,7 @@ async def _send_profile(message: Message, session: AsyncSession, telegram_id: in
         "",
         f"👤 <b>Имя:</b> {_escape_html(user.nickname)}",
         f"⭐ <b>Баллы:</b> {user.points}",
-        f"📊 <b>Место в рейтинге:</b> #{rank}",
+        f"📊 <b>Место в рейтинге:</b> {rank_label}",
         f"📸 <b>Работ отправлено:</b> {user.submissions_count}",
         "",
         "📸 <b>Последние работы:</b>",
@@ -347,7 +348,7 @@ async def submit_confirm(cb: CallbackQuery, session: AsyncSession, state: FSMCon
 @router.message(Command("leaderboard"))
 async def leaderboard_cmd(message: Message, session: AsyncSession) -> None:
     res = await session.execute(
-        select(User).order_by(desc(User.points))
+        select(User).where(User.is_banned.is_(False)).order_by(desc(User.points), User.id)
         .limit(50)
     )
     users = res.scalars().all()

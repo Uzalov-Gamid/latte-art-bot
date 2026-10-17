@@ -121,3 +121,63 @@ class ScoringTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.user.points, 24)
         self.assertEqual(self.user.evaluated_submissions_count, 1)
         self.assertEqual(self.submission.total_score, 24)
+
+    async def test_invalid_criteria_do_not_mutate_submission_or_points(self):
+        from utils import apply_submission_result
+        scores = dict(visual_quality=5, creativity=5, technical_skills=5, overall_harmony=5, total_score=20)
+        for invalid in (-1, 11, float("nan"), float("inf"), None):
+            with self.subTest(value=invalid):
+                with self.assertRaises(ValueError):
+                    apply_submission_result(self.submission, dict(scores, visual_quality=invalid))
+                self.assertEqual(self.user.points, 0)
+                self.assertEqual(self.submission.status, SubmissionStatus.PENDING)
+
+    async def test_submission_window_rejects_nonpositive_and_fractional_weeks(self):
+        from utils import check_submission_limit
+        for weeks in (0, -1, 1.5, True):
+            with self.subTest(weeks=weeks), self.assertRaises(ValueError):
+                await check_submission_limit(self.session, self.user.id, weeks)
+        self.assertEqual(await check_submission_limit(self.session, self.user.id), (True, 1))
+
+    async def test_equal_points_have_stable_ordinal_ranks(self):
+        from utils import get_user_ranking
+        self.assertEqual(await get_user_ranking(self.session, self.user.id), 1)
+        self.assertEqual(await get_user_ranking(self.session, self.admin.id), 2)
+
+    async def test_banned_users_do_not_occupy_leaderboard_places(self):
+        from utils import get_user_ranking
+        from routers.user import leaderboard_cmd
+        from unittest.mock import AsyncMock
+        self.admin.is_banned = True
+        self.admin.points = 999
+        await self.session.flush()
+        self.assertEqual(await get_user_ranking(self.session, self.user.id), 1)
+        self.assertEqual(await get_user_ranking(self.session, self.admin.id), 0)
+        message = AsyncMock()
+        await leaderboard_cmd(message, self.session)
+        self.assertNotIn("judge", message.answer.call_args.args[0])
+
+    async def test_default_export_names_are_unique_for_simultaneous_requests(self):
+        from unittest.mock import patch
+        from datetime import datetime
+        paths = []
+        try:
+            with patch("utils.datetime") as clock:
+                clock.utcnow.return_value = datetime(2026, 10, 17, 12)
+                paths.append(await export_to_excel(self.session))
+                paths.append(await export_to_excel(self.session))
+            self.assertNotEqual(paths[0], paths[1])
+        finally:
+            for path in paths:
+                Path(path).unlink(missing_ok=True)
+
+    async def test_failed_export_preserves_previous_file_and_removes_temporary_output(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as temp:
+            target = Path(temp) / "existing.xlsx"
+            target.write_bytes(b"previous export")
+            with patch("utils.pd.DataFrame.to_excel", side_effect=RuntimeError("write failed")):
+                with self.assertRaisesRegex(RuntimeError, "write failed"):
+                    await export_to_excel(self.session, str(target))
+            self.assertEqual(target.read_bytes(), b"previous export")
+            self.assertEqual(list(Path(temp).iterdir()), [target])

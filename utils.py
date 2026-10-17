@@ -7,12 +7,17 @@
 """
 
 import logging
+import math
+import uuid
+import os
+import tempfile
+from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, or_, and_
 from sqlalchemy.orm import selectinload
 from models import User, Submission, Evaluation, UserLevel, SubmissionStatus
 
@@ -88,6 +93,8 @@ async def check_submission_limit(session: AsyncSession, user_id: int, weeks: int
     Check if user has exceeded submission limit (default: 3 per week).
     Returns (can_submit, count_this_week).
     """
+    if isinstance(weeks, bool) or not isinstance(weeks, int) or weeks < 1:
+        raise ValueError("weeks must be a positive integer")
     limit = 3
     week_ago = datetime.utcnow() - timedelta(weeks=weeks)
 
@@ -103,11 +110,14 @@ async def check_submission_limit(session: AsyncSession, user_id: int, weeks: int
 async def get_user_ranking(session: AsyncSession, user_id: int) -> int:
     """Get user's ranking position based on points."""
     user = await session.get(User, user_id)
-    if not user:
+    if not user or user.is_banned:
         return 0
 
     result = await session.execute(
-        select(func.count(User.id)).where(User.points > user.points)
+        select(func.count(User.id)).where(User.is_banned.is_(False)).where(or_(
+            User.points > user.points,
+            and_(User.points == user.points, User.id < user.id),
+        ))
     )
     rank = (result.scalar() or 0) + 1
     return rank
@@ -152,6 +162,15 @@ def apply_submission_result(submission, scores, accepted=True):
     was_evaluated = submission.status == SubmissionStatus.EVALUATED
     previous_points = int(submission.total_score or 0) if was_evaluated else 0
     if accepted:
+        limits = {"visual_quality": 10, "creativity": 10, "technical_skills": 10,
+                  "overall_harmony": 10, "total_score": 40}
+        try:
+            valid = all(math.isfinite(scores[field]) and 0 <= scores[field] <= maximum
+                        for field, maximum in limits.items())
+        except (KeyError, TypeError):
+            valid = False
+        if not valid:
+            raise ValueError("Judging scores must be finite and within their limits")
         for field in ("visual_quality", "creativity", "technical_skills", "overall_harmony", "total_score"):
             setattr(submission, field, scores[field])
         submission.level_achieved = calculate_level_from_score(scores["total_score"])
@@ -190,11 +209,12 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
     Export all data to Excel file with multiple sheets.
     Returns path to created file.
     """
+    temporary_path = None
     try:
         if filename is None:
-            filename = f"latte_art_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.xlsx"
+            filename = f"latte_art_export_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex}.xlsx"
         # Лист 1: Участники
-        users_result = await session.execute(select(User).order_by(desc(User.points)))
+        users_result = await session.execute(select(User).order_by(desc(User.points), User.id))
         users = users_result.scalars().all()
 
         users_data = []
@@ -250,7 +270,7 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
 
         # Лист 3: Рейтинг (топ-100)
         leaderboard_result = await session.execute(
-            select(User).order_by(desc(User.points))
+            select(User).where(User.is_banned.is_(False)).order_by(desc(User.points), User.id)
             .limit(100)
         )
         leaderboard = leaderboard_result.scalars().all()
@@ -301,8 +321,11 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
 
         df_evaluations = pd.DataFrame(evaluations_data)
 
-        # Write to Excel
-        with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+        # Write beside the destination, then atomically replace the completed file.
+        fd, temporary_path = tempfile.mkstemp(prefix=".latte-export-", suffix=".xlsx",
+                                               dir=Path(filename).resolve().parent)
+        with os.fdopen(fd, "wb") as export_stream:
+            writer = pd.ExcelWriter(export_stream, engine="openpyxl")
             df_users.to_excel(writer, sheet_name="Участники", index=False)
             df_submissions.to_excel(writer, sheet_name="Работы", index=False)
             df_leaderboard.to_excel(writer, sheet_name="Рейтинг", index=False)
@@ -313,14 +336,18 @@ async def export_to_excel(session: AsyncSession, filename: Optional[str] = None)
                     for cell in row:
                         if cell.data_type == "f":
                             cell.data_type = "s"
-
-
+            writer.close()
+        os.replace(temporary_path, filename)
+        temporary_path = None
         logger.info(f"Excel export created: {filename}")
         return filename
 
     except Exception as e:
         logger.error(f"Error exporting to Excel: {e}")
         raise
+    finally:
+        if temporary_path is not None:
+            Path(temporary_path).unlink(missing_ok=True)
 
 
 def get_localized_text(key: str, language: str = "ru") -> str:

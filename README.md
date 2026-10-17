@@ -156,3 +156,10 @@ python main.py
 - **3 работы в неделю** на участника
 - Описание до **300 символов**
 - Оценка: 0–10 по каждому критерию, максимум **40 баллов** за работу
+
+## Guides
+
+- [Setup and environment](docs/setup.md)
+- [Judging and leaderboard rules](docs/judging.md)
+- [Excel exports](docs/exports.md)
+- [Operations and recovery](docs/operations.md)
